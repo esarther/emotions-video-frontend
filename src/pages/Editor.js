@@ -440,7 +440,6 @@ function Editor() {
               style={{
                 padding: '0.75rem 1.5rem',
                 fontSize: '1rem',
-                border: 'none',
                 borderRadius: '8px',
                 backgroundColor: currentStep === 8 ? '#e2e8f0' : '#3b82f6',
                 color: '#fff',
