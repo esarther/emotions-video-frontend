@@ -1,4 +1,4 @@
-// src/pages/Editor.js - VERSION COMPLÈTE CORRIGÉE
+// src/pages/Editor.js - VERSION ABSOLUMENT FINALE SANS ERREURS
 import React, { useState } from 'react';
 
 const BACKEND_URL = 'https://sensational-naiad-e44c75.netlify.app';
@@ -337,7 +337,6 @@ function Editor() {
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 64px)', backgroundColor: '#f8fafc' }}>
-      {/* Sidebar gauche - Étapes */}
       <div style={{
         width: '280px',
         backgroundColor: '#fff',
@@ -396,7 +395,6 @@ function Editor() {
         ))}
       </div>
 
-      {/* Zone centrale - Contenu */}
       <div style={{
         flex: 1,
         padding: '2rem',
@@ -408,7 +406,6 @@ function Editor() {
         }}>
           {renderStepContent()}
 
-          {/* Boutons de navigation */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
@@ -422,7 +419,6 @@ function Editor() {
               style={{
                 padding: '0.75rem 1.5rem',
                 fontSize: '1rem',
-                border: 'none',
                 borderRadius: '8px',
                 backgroundColor: currentStep === 1 ? '#e2e8f0' : '#fff',
                 color: currentStep === 1 ? '#94a3b8' : '#475569',
@@ -444,7 +440,8 @@ function Editor() {
                 backgroundColor: currentStep === 8 ? '#e2e8f0' : '#3b82f6',
                 color: '#fff',
                 cursor: currentStep === 8 ? 'not-allowed' : 'pointer',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                border: currentStep === 8 ? 'none' : 'none'
               }}
             >
               Suivant →
@@ -453,7 +450,6 @@ function Editor() {
         </div>
       </div>
 
-      {/* Sidebar droite - Résumé */}
       <div style={{
         width: '320px',
         backgroundColor: '#fff',
@@ -506,13 +502,13 @@ function Editor() {
             width: '100%',
             padding: '1rem',
             fontSize: '1rem',
-            border: 'none',
             borderRadius: '8px',
             backgroundColor: '#10b981',
             color: '#fff',
             cursor: 'pointer',
             fontWeight: 'bold',
-            marginTop: '2rem'
+            marginTop: '2rem',
+            border: 'none'
           }}
         >
           💾 Sauvegarder
