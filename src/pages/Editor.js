@@ -1,21 +1,49 @@
-// src/pages/Editor.js - VERSION ABSOLUMENT FINALE SANS ERREURS
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { ChevronRight, Upload, X, Save, Play, Trash2, Edit2, GripVertical, Music } from 'lucide-react';
 
 const BACKEND_URL = 'https://sensational-naiad-e44c75.netlify.app';
 
 function Editor() {
-  const [currentStep, setCurrentStep] = useState(1);
+  const [activeStep, setActiveStep] = useState(1);
+  const [draggedMedia, setDraggedMedia] = useState(null);
+  const [draggedChapter, setDraggedChapter] = useState(null);
+  
   const [projectData, setProjectData] = useState({
     occasion: '',
     title: '',
-    chapters: [],
-    medias: [],
-    music: '',
-    dedication: '',
-    participants: []
+    chapters: [
+      { 
+        id: '1', 
+        name: '👶 Enfance', 
+        medias: [],
+        music: null,
+        introSlide: { text: 'Enfance', font: 'Arial', color: '#000000', bgColor: '#ffffff' }
+      },
+      { 
+        id: '2', 
+        name: '❤️ Amour', 
+        medias: [],
+        music: null,
+        introSlide: { text: 'Amour', font: 'Arial', color: '#000000', bgColor: '#ffffff' }
+      },
+      { 
+        id: '3', 
+        name: '👥 Amis', 
+        medias: [],
+        music: null,
+        introSlide: { text: 'Amis', font: 'Arial', color: '#000000', bgColor: '#ffffff' }
+      }
+    ],
+    globalMusic: null,
+    dedication: { type: '', content: '' }
   });
 
-  const [uploading, setUploading] = useState(false);
+  const [editingChapter, setEditingChapter] = useState(null);
+  const fileInputRef = useRef(null);
+  const musicInputRef = useRef(null);
+  const chapterMusicInputRef = useRef(null);
+  const [targetChapter, setTargetChapter] = useState(null);
+  const [targetMusicChapter, setTargetMusicChapter] = useState(null);
 
   const occasions = [
     '🎂 Anniversaire',
@@ -26,493 +54,704 @@ function Editor() {
     '🎉 Autre'
   ];
 
-  const availableChapters = [
-    '👶 Enfance',
-    '❤️ Amour',
-    '👨‍👩‍👧‍👦 Famille',
-    '👥 Amis',
-    '⚽ Passions',
-    '✈️ Voyages',
-    '🎉 Fêtes',
-    '🏖️ Lieux'
-  ];
+  const fontList = ['Arial', 'Georgia', 'Courier New', 'Times New Roman', 'Verdana', 'Comic Sans MS', 'Impact'];
 
-  const handleOccasionSelect = (occasion) => {
-    setProjectData({ ...projectData, occasion });
-  };
-
-  const handleChapterToggle = (chapter) => {
-    const chapters = projectData.chapters.includes(chapter)
-      ? projectData.chapters.filter(c => c !== chapter)
-      : [...projectData.chapters, chapter];
-    setProjectData({ ...projectData, chapters });
-  };
-
-  const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    setUploading(true);
+  // Upload vers Cloudinary en arrière-plan
+  const uploadToCloudinary = async (file, chapterId, mediaId) => {
+    const chapter = projectData.chapters.find(ch => ch.id === chapterId);
+    const formData = new FormData();
+    formData.append('media', file);
+    formData.append('projectId', 'local-project');
+    formData.append('chapterName', chapter.name);
+    formData.append('userEmail', 'user@example.com');
 
     try {
-      const uploadedMedias = [];
-
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('project_id', '776ea330-5060-4d7c-a094-2e08612b259');
-
-        const response = await fetch(`${BACKEND_URL}/api/upload`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Upload failed for ${file.name}`);
-        }
-
-        const data = await response.json();
-        
-        uploadedMedias.push({
-          id: data.id,
-          url: data.url,
-          type: file.type.startsWith('image/') ? 'image' : 'video',
-          name: file.name
-        });
-      }
-
-      setProjectData({
-        ...projectData,
-        medias: [...projectData.medias, ...uploadedMedias]
+      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+        method: 'POST',
+        body: formData
       });
 
-      alert(`${uploadedMedias.length} fichier(s) uploadé(s) avec succès !`);
+      if (response.ok) {
+        const data = await response.json();
+        setProjectData(prev => ({
+          ...prev,
+          chapters: prev.chapters.map(ch =>
+            ch.id === chapterId
+              ? {
+                  ...ch,
+                  medias: ch.medias.map(m =>
+                    m.id === mediaId
+                      ? { ...m, cloudinaryUrl: data.files[0].url, uploaded: true }
+                      : m
+                  )
+                }
+              : ch
+          )
+        }));
+      }
     } catch (error) {
-      console.error('Error uploading files:', error);
-      alert('Erreur lors de l\'upload. Vérifiez votre connexion.');
-    } finally {
-      setUploading(false);
+      console.log('Upload Cloudinary en arrière-plan');
     }
+  };
+
+  // Gérer l'upload des fichiers avec preview locale
+  const handleFileSelect = async (event) => {
+    const files = Array.from(event.target.files);
+    const chapterId = targetChapter || projectData.chapters[0]?.id;
+    
+    if (!chapterId) return;
+
+    // Créer tous les médias d'un coup
+    const newMedias = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+        alert(`Le fichier ${file.name} n'est ni une image ni une vidéo`);
+        continue;
+      }
+
+      const isVideo = file.type.startsWith('video/');
+      const objectUrl = URL.createObjectURL(file);
+      
+      const newMedia = {
+        id: Date.now() + Math.random() + i, // Ajouter i pour garantir unicité
+        name: file.name,
+        type: isVideo ? 'video' : 'image',
+        localUrl: objectUrl,
+        file: file,
+        uploaded: false
+      };
+
+      newMedias.push(newMedia);
+      
+      // Upload en arrière-plan
+      uploadToCloudinary(file, chapterId, newMedia.id);
+    }
+
+    // Ajouter tous les médias en une seule fois
+    setProjectData(prev => ({
+      ...prev,
+      chapters: prev.chapters.map(ch =>
+        ch.id === chapterId
+          ? { ...ch, medias: [...ch.medias, ...newMedias] }
+          : ch
+      )
+    }));
+
+    event.target.value = '';
+  };
+
+  // Drag & Drop pour les fichiers
+  const handleDrop = (e, chapterId) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    setTargetChapter(chapterId);
+    
+    const fakeEvent = { target: { files, value: '' } };
+    handleFileSelect(fakeEvent);
+  };
+
+  // Drag & Drop pour réorganiser les médias
+  const handleMediaDragStart = (media, chapterId) => {
+    setDraggedMedia({ media, chapterId });
+  };
+
+  const handleMediaDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleMediaDrop = (targetChapterId, targetIndex) => {
+    if (!draggedMedia) return;
+
+    const { media, chapterId: sourceChapterId } = draggedMedia;
+
+    setProjectData(prev => {
+      let newChapters = [...prev.chapters];
+      
+      newChapters = newChapters.map(ch => {
+        if (ch.id === sourceChapterId) {
+          return { ...ch, medias: ch.medias.filter(m => m.id !== media.id) };
+        }
+        return ch;
+      });
+
+      newChapters = newChapters.map(ch => {
+        if (ch.id === targetChapterId) {
+          const newMedias = [...ch.medias];
+          newMedias.splice(targetIndex, 0, media);
+          return { ...ch, medias: newMedias };
+        }
+        return ch;
+      });
+
+      return { ...prev, chapters: newChapters };
+    });
+
+    setDraggedMedia(null);
+  };
+
+  // Drag & Drop pour réorganiser les chapitres
+  const handleChapterDragStart = (chapter) => {
+    setDraggedChapter(chapter);
+  };
+
+  const handleChapterDrop = (targetIndex) => {
+    if (!draggedChapter) return;
+
+    setProjectData(prev => {
+      const newChapters = [...prev.chapters];
+      const currentIndex = newChapters.findIndex(ch => ch.id === draggedChapter.id);
+      newChapters.splice(currentIndex, 1);
+      newChapters.splice(targetIndex, 0, draggedChapter);
+      return { ...prev, chapters: newChapters };
+    });
+
+    setDraggedChapter(null);
+  };
+
+  const deleteMedia = (chapterId, mediaId) => {
+    setProjectData(prev => ({
+      ...prev,
+      chapters: prev.chapters.map(ch =>
+        ch.id === chapterId
+          ? { ...ch, medias: ch.medias.filter(m => m.id !== mediaId) }
+          : ch
+      )
+    }));
+  };
+
+  const addCustomChapter = () => {
+    const name = prompt('Nom du chapitre :');
+    if (!name) return;
+
+    const newChapter = {
+      id: Date.now().toString(),
+      name: name,
+      medias: [],
+      music: null,
+      introSlide: { text: name, font: 'Arial', color: '#000000', bgColor: '#ffffff' }
+    };
+    setProjectData(prev => ({
+      ...prev,
+      chapters: [...prev.chapters, newChapter]
+    }));
+  };
+
+  const updateChapter = (chapterId, updates) => {
+    setProjectData(prev => ({
+      ...prev,
+      chapters: prev.chapters.map(ch =>
+        ch.id === chapterId ? { ...ch, ...updates } : ch
+      )
+    }));
+  };
+
+  const deleteChapter = (chapterId) => {
+    if (!window.confirm('Supprimer ce chapitre ?')) return;
+    setProjectData(prev => ({
+      ...prev,
+      chapters: prev.chapters.filter(ch => ch.id !== chapterId)
+    }));
+  };
+
+  const handleGlobalMusicSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const objectUrl = URL.createObjectURL(file);
+    setProjectData(prev => ({
+      ...prev,
+      globalMusic: {
+        name: file.name,
+        url: objectUrl
+      }
+    }));
+    event.target.value = '';
+  };
+
+  const handleChapterMusicSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file || !targetMusicChapter) return;
+
+    const objectUrl = URL.createObjectURL(file);
+    setProjectData(prev => ({
+      ...prev,
+      chapters: prev.chapters.map(ch =>
+        ch.id === targetMusicChapter
+          ? { ...ch, music: { name: file.name, url: objectUrl } }
+          : ch
+      )
+    }));
+    event.target.value = '';
+    setTargetMusicChapter(null);
+  };
+
+  const exportProject = () => {
+    const dataStr = JSON.stringify(projectData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'emotions-video-project.json';
+    link.click();
+  };
+
+  const stats = {
+    totalMedias: projectData.chapters.reduce((acc, ch) => acc + ch.medias.length, 0),
+    totalPhotos: projectData.chapters.reduce(
+      (acc, ch) => acc + ch.medias.filter(m => m.type === 'image').length,
+      0
+    ),
+    totalVideos: projectData.chapters.reduce(
+      (acc, ch) => acc + ch.medias.filter(m => m.type === 'video').length,
+      0
+    ),
+    estimatedDuration: projectData.chapters.reduce((acc, ch) => acc + (ch.medias.length * 3), 0)
   };
 
   const steps = [
-    { number: 1, title: 'Occasion', icon: '🎉' },
-    { number: 2, title: 'Chapitres', icon: '📚' },
-    { number: 3, title: 'Médias', icon: '📸' },
-    { number: 4, title: 'Musique', icon: '🎵' },
-    { number: 5, title: 'Dédicaces', icon: '💌' },
-    { number: 6, title: 'Collaboration', icon: '👥' },
-    { number: 7, title: 'Aperçu', icon: '👁️' },
-    { number: 8, title: 'Paiement', icon: '💳' }
+    { id: 1, title: 'Occasion', icon: '🎉' },
+    { id: 2, title: 'Chapitres', icon: '📝' },
+    { id: 3, title: 'Médias', icon: '📁' },
+    { id: 4, title: 'Musique', icon: '🎵' },
+    { id: 5, title: 'Dédicaces', icon: '💌' },
+    { id: 6, title: 'Timeline', icon: '⏱️' },
+    { id: 7, title: 'Aperçu', icon: '👁️' },
+    { id: 8, title: 'Export', icon: '💾' }
   ];
 
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              🎉 Quelle est l'occasion ?
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              {occasions.map((occasion) => (
-                <button
-                  key={occasion}
-                  onClick={() => handleOccasionSelect(occasion)}
-                  style={{
-                    padding: '1.5rem',
-                    fontSize: '1.2rem',
-                    border: projectData.occasion === occasion ? '3px solid #3b82f6' : '2px solid #e2e8f0',
-                    borderRadius: '8px',
-                    backgroundColor: projectData.occasion === occasion ? '#eff6ff' : '#fff',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s',
-                    fontWeight: projectData.occasion === occasion ? 'bold' : 'normal'
-                  }}
-                >
-                  {occasion}
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              📚 Choisissez vos chapitres
-            </h2>
-            <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
-              Sélectionnez les thèmes que vous souhaitez inclure dans votre vidéo
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              {availableChapters.map((chapter) => (
-                <button
-                  key={chapter}
-                  onClick={() => handleChapterToggle(chapter)}
-                  style={{
-                    padding: '1.5rem',
-                    fontSize: '1.1rem',
-                    border: projectData.chapters.includes(chapter) ? '3px solid #10b981' : '2px solid #e2e8f0',
-                    borderRadius: '8px',
-                    backgroundColor: projectData.chapters.includes(chapter) ? '#d1fae5' : '#fff',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s',
-                    fontWeight: projectData.chapters.includes(chapter) ? 'bold' : 'normal'
-                  }}
-                >
-                  {chapter}
-                  {projectData.chapters.includes(chapter) && ' ✓'}
-                </button>
-              ))}
-            </div>
-            <p style={{ marginTop: '1rem', color: '#3b82f6', fontWeight: 'bold' }}>
-              {projectData.chapters.length} chapitre(s) sélectionné(s)
-            </p>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              📸 Ajoutez vos photos et vidéos
-            </h2>
-            <div style={{
-              border: '2px dashed #cbd5e1',
-              borderRadius: '8px',
-              padding: '2rem',
-              textAlign: 'center',
-              backgroundColor: '#f8fafc',
-              marginBottom: '1.5rem'
-            }}>
-              <input
-                type="file"
-                multiple
-                accept="image/*,video/*"
-                onChange={handleFileUpload}
-                disabled={uploading}
-                style={{ display: 'none' }}
-                id="fileInput"
-              />
-              <label htmlFor="fileInput" style={{
-                cursor: uploading ? 'not-allowed' : 'pointer',
-                display: 'inline-block'
-              }}>
-                <div style={{
-                  fontSize: '3rem',
-                  marginBottom: '1rem',
-                  opacity: uploading ? 0.5 : 1
-                }}>
-                  📤
-                </div>
-                <p style={{ 
-                  fontSize: '1.2rem', 
-                  color: '#475569',
-                  marginBottom: '0.5rem'
-                }}>
-                  {uploading ? 'Upload en cours...' : 'Cliquez pour ajouter des fichiers'}
-                </p>
-                <p style={{ fontSize: '0.9rem', color: '#94a3b8' }}>
-                  Formats acceptés : JPEG, PNG, HEIC, MP4, MOV, AVI
-                </p>
-              </label>
-            </div>
-            
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-              gap: '1rem'
-            }}>
-              {projectData.medias.map((media, index) => (
-                <div key={index} style={{
-                  position: 'relative',
-                  borderRadius: '8px',
-                  overflow: 'hidden',
-                  backgroundColor: '#f1f5f9',
-                  aspectRatio: '1'
-                }}>
-                  {media.type === 'image' ? (
-                    <img
-                      src={media.url}
-                      alt={media.name}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                      }}
-                    />
-                  ) : (
-                    <video
-                      src={media.url}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover'
-                      }}
-                    />
-                  )}
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'rgba(0,0,0,0.7)',
-                    color: '#fff',
-                    padding: '0.5rem',
-                    fontSize: '0.75rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {media.name}
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            {projectData.medias.length > 0 && (
-              <p style={{ marginTop: '1rem', color: '#10b981', fontWeight: 'bold' }}>
-                ✅ {projectData.medias.length} fichier(s) uploadé(s)
-              </p>
-            )}
-          </div>
-        );
-
-      case 4:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              🎵 Choisissez votre musique
-            </h2>
-            <p style={{ color: '#64748b' }}>Fonctionnalité à venir...</p>
-          </div>
-        );
-
-      case 5:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              💌 Personnalisez vos dédicaces
-            </h2>
-            <p style={{ color: '#64748b' }}>Fonctionnalité à venir...</p>
-          </div>
-        );
-
-      case 6:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              👥 Invitez des collaborateurs
-            </h2>
-            <p style={{ color: '#64748b' }}>Fonctionnalité à venir...</p>
-          </div>
-        );
-
-      case 7:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              👁️ Aperçu de votre vidéo
-            </h2>
-            <p style={{ color: '#64748b' }}>Fonctionnalité à venir...</p>
-          </div>
-        );
-
-      case 8:
-        return (
-          <div>
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#1e293b' }}>
-              💳 Finaliser et payer
-            </h2>
-            <p style={{ color: '#64748b' }}>Fonctionnalité à venir...</p>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
-
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 64px)', backgroundColor: '#f8fafc' }}>
-      <div style={{
-        width: '280px',
-        backgroundColor: '#fff',
-        padding: '2rem 1rem',
-        borderRight: '1px solid #e2e8f0',
-        overflowY: 'auto'
-      }}>
-        <h3 style={{ 
-          fontSize: '1.2rem', 
-          marginBottom: '1.5rem',
-          color: '#1e293b',
-          fontWeight: 'bold'
-        }}>
-          Étapes de création
-        </h3>
-        
-        {steps.map((step) => (
-          <div
-            key={step.number}
-            onClick={() => setCurrentStep(step.number)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '1rem',
-              marginBottom: '0.5rem',
-              borderRadius: '8px',
-              backgroundColor: currentStep === step.number ? '#eff6ff' : 'transparent',
-              border: currentStep === step.number ? '2px solid #3b82f6' : '2px solid transparent',
-              cursor: 'pointer',
-              transition: 'all 0.3s'
-            }}
-          >
-            <span style={{ 
-              fontSize: '1.5rem', 
-              marginRight: '0.75rem' 
-            }}>
-              {step.icon}
-            </span>
-            <div>
-              <div style={{ 
-                fontSize: '0.75rem', 
-                color: '#64748b',
-                fontWeight: '500'
-              }}>
-                Étape {step.number}
+    <div className="flex h-screen bg-gray-50">
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
+          <h1 className="text-2xl font-bold">🎬 E-Motions Video</h1>
+          <p className="text-sm opacity-90 mt-1">Création collaborative</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {steps.map((step) => (
+            <button
+              key={step.id}
+              onClick={() => setActiveStep(step.id)}
+              className={`w-full flex items-center justify-between p-4 border-b hover:bg-gray-50 transition ${
+                activeStep === step.id ? 'bg-indigo-50 border-l-4 border-indigo-600' : ''
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{step.icon}</span>
+                <span className={`font-medium ${activeStep === step.id ? 'text-indigo-600' : ''}`}>
+                  {step.title}
+                </span>
               </div>
-              <div style={{ 
-                fontSize: '0.9rem',
-                color: currentStep === step.number ? '#3b82f6' : '#1e293b',
-                fontWeight: currentStep === step.number ? 'bold' : 'normal'
-              }}>
-                {step.title}
+              <ChevronRight className="text-gray-400" size={20} />
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 border-t bg-gray-50">
+          <button
+            onClick={exportProject}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 transition flex items-center justify-center gap-2"
+          >
+            <Save size={18} />
+            Exporter le projet
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-8">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <input
+          ref={musicInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleGlobalMusicSelect}
+          className="hidden"
+        />
+        <input
+          ref={chapterMusicInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleChapterMusicSelect}
+          className="hidden"
+        />
+
+        {activeStep === 1 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">🎉 Choisissez l'occasion</h2>
+            <div className="grid grid-cols-2 gap-4 max-w-2xl">
+              {occasions.map((occ) => (
+                <button
+                  key={occ}
+                  onClick={() => setProjectData({ ...projectData, occasion: occ })}
+                  className={`p-6 rounded-xl border-2 transition hover:shadow-lg ${
+                    projectData.occasion === occ
+                      ? 'border-indigo-600 bg-indigo-50'
+                      : 'border-gray-200 hover:border-indigo-300'
+                  }`}
+                >
+                  <span className="text-4xl block mb-2">{occ.split(' ')[0]}</span>
+                  <span className="font-medium">{occ.split(' ').slice(1).join(' ')}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeStep === 2 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">📝 Organisez vos chapitres</h2>
+            
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold">Chapitres :</h3>
+                <button
+                  onClick={addCustomChapter}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm"
+                >
+                  + Ajouter un chapitre
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {projectData.chapters.map((chapter, index) => (
+                  <div
+                    key={chapter.id}
+                    draggable
+                    onDragStart={() => handleChapterDragStart(chapter)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleChapterDrop(index)}
+                    className="bg-white p-4 rounded-lg border cursor-move hover:shadow-md transition"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <GripVertical size={20} className="text-gray-400" />
+                        <span className="font-medium">{chapter.name}</span>
+                        <span className="text-sm text-gray-500">({chapter.medias.length} médias)</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingChapter(chapter.id)}
+                          className="text-indigo-600 hover:text-indigo-700"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => deleteChapter(chapter.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {editingChapter === chapter.id && (
+                      <div className="mt-4 pt-4 border-t space-y-3">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Nom du chapitre :</label>
+                          <input
+                            type="text"
+                            value={chapter.name}
+                            onChange={(e) => updateChapter(chapter.id, { name: e.target.value })}
+                            className="w-full border rounded-lg px-3 py-2"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Texte diapo intro :</label>
+                          <input
+                            type="text"
+                            value={chapter.introSlide.text}
+                            onChange={(e) => updateChapter(chapter.id, {
+                              introSlide: { ...chapter.introSlide, text: e.target.value }
+                            })}
+                            className="w-full border rounded-lg px-3 py-2"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Police :</label>
+                            <select
+                              value={chapter.introSlide.font}
+                              onChange={(e) => updateChapter(chapter.id, {
+                                introSlide: { ...chapter.introSlide, font: e.target.value }
+                              })}
+                              className="w-full border rounded-lg px-3 py-2"
+                            >
+                              {fontList.map(font => (
+                                <option key={font} value={font}>{font}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Couleur texte :</label>
+                            <input
+                              type="color"
+                              value={chapter.introSlide.color}
+                              onChange={(e) => updateChapter(chapter.id, {
+                                introSlide: { ...chapter.introSlide, color: e.target.value }
+                              })}
+                              className="w-full h-10 border rounded-lg"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setEditingChapter(null)}
+                          className="text-sm text-indigo-600 hover:underline"
+                        >
+                          Fermer
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      <div style={{
-        flex: 1,
-        padding: '2rem',
-        overflowY: 'auto'
-      }}>
-        <div style={{
-          maxWidth: '1200px',
-          margin: '0 auto'
-        }}>
-          {renderStepContent()}
+        {activeStep === 3 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">📁 Ajoutez vos médias</h2>
 
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: '2rem',
-            paddingTop: '2rem',
-            borderTop: '1px solid #e2e8f0'
-          }}>
-            <button
-              onClick={() => setCurrentStep(Math.max(1, currentStep - 1))}
-              disabled={currentStep === 1}
-              style={{
-                padding: '0.75rem 1.5rem',
-                fontSize: '1rem',
-                borderRadius: '8px',
-                backgroundColor: currentStep === 1 ? '#e2e8f0' : '#fff',
-                color: currentStep === 1 ? '#94a3b8' : '#475569',
-                cursor: currentStep === 1 ? 'not-allowed' : 'pointer',
-                fontWeight: 'bold',
-                border: '2px solid #e2e8f0'
-              }}
-            >
-              ← Précédent
-            </button>
+            {projectData.chapters.map((chapter) => (
+              <div key={chapter.id} className="mb-8 bg-white rounded-xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold">{chapter.name}</h3>
+                  <button
+                    onClick={() => {
+                      setTargetChapter(chapter.id);
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+                  >
+                    <Upload size={18} />
+                    Ajouter
+                  </button>
+                </div>
 
-            <button
-              onClick={() => setCurrentStep(Math.min(8, currentStep + 1))}
-              disabled={currentStep === 8}
-              style={{
-                padding: '0.75rem 1.5rem',
-                fontSize: '1rem',
-                borderRadius: '8px',
-                backgroundColor: currentStep === 8 ? '#e2e8f0' : '#3b82f6',
-                color: '#fff',
-                cursor: currentStep === 8 ? 'not-allowed' : 'pointer',
-                fontWeight: 'bold',
-                border: currentStep === 8 ? 'none' : 'none'
-              }}
-            >
-              Suivant →
-            </button>
+                <div
+                  onDrop={(e) => handleDrop(e, chapter.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-6 min-h-[200px]"
+                >
+                  {chapter.medias.length === 0 ? (
+                    <div className="text-center text-gray-400 py-8">
+                      <Upload size={48} className="mx-auto mb-2 opacity-50" />
+                      <p>Glissez vos fichiers ici ou cliquez sur "Ajouter"</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-4">
+                      {chapter.medias.map((media, mediaIndex) => (
+                        <div
+                          key={media.id}
+                          draggable
+                          onDragStart={() => handleMediaDragStart(media, chapter.id)}
+                          onDragOver={handleMediaDragOver}
+                          onDrop={(e) => {
+                            e.stopPropagation();
+                            handleMediaDrop(chapter.id, mediaIndex);
+                          }}
+                          className="relative group cursor-move"
+                        >
+                          {media.type === 'image' ? (
+                            <img
+                              src={media.localUrl}
+                              alt={media.name}
+                              className="aspect-square object-cover rounded-lg"
+                            />
+                          ) : (
+                            <div className="aspect-square bg-gray-900 rounded-lg flex items-center justify-center relative overflow-hidden">
+                              <video
+                                src={media.localUrl}
+                                className="absolute inset-0 w-full h-full object-cover"
+                              />
+                              <Play className="text-white relative z-10" size={32} />
+                            </div>
+                          )}
+                          <button
+                            onClick={() => deleteMedia(chapter.id, media.id)}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <X size={16} />
+                          </button>
+                          <div className="text-xs text-gray-600 mt-1 truncate">{media.name}</div>
+                          {!media.uploaded && (
+                            <div className="text-xs text-orange-500">Upload en cours...</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+
+        {activeStep === 4 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">🎵 Ajoutez la musique</h2>
+            
+            <div className="max-w-2xl mb-8">
+              <div className="bg-white rounded-xl p-6 shadow-sm">
+                <h3 className="font-semibold mb-4">Musique globale (toute la vidéo)</h3>
+                {projectData.globalMusic ? (
+                  <div className="flex items-center justify-between p-4 bg-indigo-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Music className="text-indigo-600" size={24} />
+                      <span className="font-medium">{projectData.globalMusic.name}</span>
+                    </div>
+                    <button
+                      onClick={() => setProjectData(prev => ({ ...prev, globalMusic: null }))}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => musicInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-indigo-600 hover:bg-indigo-50 transition"
+                  >
+                    <Music size={32} className="mx-auto mb-2 text-gray-400" />
+                    <p className="text-gray-600">Cliquez pour ajouter une musique MP3</p>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="max-w-2xl">
+              <h3 className="font-semibold mb-4">Musique par chapitre</h3>
+              <div className="space-y-4">
+                {projectData.chapters.map((chapter) => (
+                  <div key={chapter.id} className="bg-white rounded-xl p-6 shadow-sm">
+                    <h4 className="font-medium mb-3">{chapter.name}</h4>
+                    {chapter.music ? (
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Music size={20} />
+                          <span className="text-sm">{chapter.music.name}</span>
+                        </div>
+                        <button
+                          onClick={() => updateChapter(chapter.id, { music: null })}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <X size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setTargetMusicChapter(chapter.id);
+                          chapterMusicInputRef.current?.click();
+                        }}
+                        className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-indigo-600 hover:bg-indigo-50 transition text-sm"
+                      >
+                        + Ajouter une musique pour ce chapitre
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeStep === 6 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">⏱️ Timeline du projet</h2>
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+              <div className="space-y-3">
+                {projectData.chapters.map((chapter, index) => (
+                  <div key={chapter.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                    <span className="font-mono text-sm text-gray-500 w-8">#{index + 1}</span>
+                    <div className="flex-1">
+                      <div className="font-semibold">{chapter.name}</div>
+                      <div className="text-sm text-gray-600">
+                        {chapter.medias.length} médias · ~{chapter.medias.length * 3}s
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {chapter.medias.slice(0, 4).map((media) => (
+                        <div key={media.id} className="w-12 h-12 rounded overflow-hidden">
+                          {media.type === 'image' && (
+                            <img src={media.localUrl} alt="" className="w-full h-full object-cover" />
+                          )}
+                        </div>
+                      ))}
+                      {chapter.medias.length > 4 && (
+                        <div className="w-12 h-12 bg-gray-200 rounded flex items-center justify-center text-xs">
+                          +{chapter.medias.length - 4}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 pt-6 border-t">
+                <div className="flex justify-between text-lg font-semibold">
+                  <span>Durée totale estimée :</span>
+                  <span className="text-indigo-600">~{stats.estimatedDuration}s</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeStep === 7 && (
+          <div>
+            <h2 className="text-3xl font-bold mb-6">👁️ Prévisualisation</h2>
+            <div className="bg-black rounded-xl aspect-video mb-6 flex items-center justify-center">
+              <div className="text-center text-white">
+                <Play size={64} className="mx-auto mb-4" />
+                <p>Prévisualisation de la vidéo</p>
+                <p className="text-sm text-gray-400 mt-2">
+                  {stats.totalMedias} médias · ~{stats.estimatedDuration}s
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div style={{
-        width: '320px',
-        backgroundColor: '#fff',
-        padding: '2rem 1rem',
-        borderLeft: '1px solid #e2e8f0',
-        overflowY: 'auto'
-      }}>
-        <h3 style={{
-          fontSize: '1.2rem',
-          marginBottom: '1.5rem',
-          color: '#1e293b',
-          fontWeight: 'bold'
-        }}>
-          📋 Résumé du projet
-        </h3>
+      <div className="w-80 bg-white border-l border-gray-200 overflow-y-auto p-6">
+        <h3 className="font-bold text-lg mb-4">📊 Résumé</h3>
 
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '0.5rem' }}>
-            Occasion
-          </h4>
-          <p style={{ fontSize: '1rem', color: '#1e293b', fontWeight: 'bold' }}>
-            {projectData.occasion || 'Non sélectionnée'}
-          </p>
+        {projectData.occasion && (
+          <div className="bg-indigo-50 rounded-lg p-4 mb-4">
+            <h4 className="font-semibold mb-2">🎉 Occasion</h4>
+            <p className="text-gray-700">{projectData.occasion}</p>
+          </div>
+        )}
+
+        <div className="bg-gray-50 rounded-lg p-4 mb-4">
+          <h4 className="font-semibold mb-2">📝 Chapitres ({projectData.chapters.length})</h4>
+          <ul className="text-sm space-y-1">
+            {projectData.chapters.map((ch) => (
+              <li key={ch.id} className="text-gray-600">
+                • {ch.name} ({ch.medias.length})
+              </li>
+            ))}
+          </ul>
         </div>
 
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '0.5rem' }}>
-            Chapitres
-          </h4>
-          <p style={{ fontSize: '1rem', color: '#1e293b' }}>
-            {projectData.chapters.length > 0
-              ? `${projectData.chapters.length} chapitre(s)`
-              : 'Aucun chapitre sélectionné'}
-          </p>
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h4 className="font-semibold mb-2">📷 Statistiques</h4>
+          <p className="text-sm text-gray-600">Total : {stats.totalMedias} médias</p>
+          <p className="text-sm text-gray-600">📸 Photos : {stats.totalPhotos}</p>
+          <p className="text-sm text-gray-600">🎥 Vidéos : {stats.totalVideos}</p>
+          <p className="text-sm text-gray-600 mt-2">⏱️ Durée : ~{stats.estimatedDuration}s</p>
         </div>
-
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h4 style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '0.5rem' }}>
-            Médias
-          </h4>
-          <p style={{ fontSize: '1rem', color: '#1e293b' }}>
-            {projectData.medias.length > 0
-              ? `${projectData.medias.length} fichier(s)`
-              : 'Aucun média uploadé'}
-          </p>
-        </div>
-
-        <button
-          style={{
-            width: '100%',
-            padding: '1rem',
-            fontSize: '1rem',
-            borderRadius: '8px',
-            backgroundColor: '#10b981',
-            color: '#fff',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            marginTop: '2rem',
-            border: 'none'
-          }}
-        >
-          💾 Sauvegarder
-        </button>
       </div>
     </div>
   );
