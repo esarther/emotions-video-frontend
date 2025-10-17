@@ -1,16 +1,60 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ChevronRight, Upload, X, Save, Play, Trash2, Edit2, GripVertical, Music } from 'lucide-react';
 
 const BACKEND_URL = 'https://sensational-naiad-e44c75.netlify.app';
 
-// Retrieve the active project ID from the URL (e.g., /project/[id] or ?projectId=...)
+// UUID v4 validation
+function isValidUuidV4(value) {
+  const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidV4.test(String(value || ''));
+}
+
+// Retrieve the active project ID from the URL or localStorage
 function getActiveProjectId() {
-  const path = window.location.pathname || '';
-  const match = path.match(/\/(project)\/([^/]+)/);
-  if (match && match[2]) return match[2];
-  const params = new URLSearchParams(window.location.search);
-  const pid = params.get('projectId');
-  return pid || '';
+  try {
+    const path = typeof window !== 'undefined' ? (window.location.pathname || '') : '';
+    // Support /project/[id] or /projects/[id]
+    const match = path.match(/\/(projects?)\/([^/]+)/i);
+    if (match && isValidUuidV4(match[2])) return match[2];
+
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const qp = params.get('projectId') || params.get('id') || '';
+    if (isValidUuidV4(qp)) return qp;
+
+    // LocalStorage fallbacks
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const direct = window.localStorage.getItem('projectId');
+      if (isValidUuidV4(direct)) return direct;
+
+      // Common keys that may store a project object with an id
+      const commonProjectKeys = ['currentProject', 'activeProject'];
+      for (const k of commonProjectKeys) {
+        try {
+          const raw = window.localStorage.getItem(k);
+          if (raw) {
+            const obj = JSON.parse(raw);
+            if (obj && isValidUuidV4(obj.id)) return obj.id;
+          }
+        } catch (_) {
+          // ignore parse issues
+        }
+      }
+
+      // As a last resort, scan localStorage for any UUID-looking value
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        try {
+          const val = window.localStorage.getItem(key);
+          if (isValidUuidV4(val)) return val;
+        } catch (_) {
+          // ignore parse issues
+        }
+      }
+    }
+  } catch (_) {
+    // ignore environment errors
+  }
+  return '';
 }
 
 function Editor() {
@@ -48,6 +92,18 @@ function Editor() {
     dedication: { type: '', content: '' }
   });
 
+  // Persist a valid projectId to localStorage when available
+  useEffect(() => {
+    const pid = getActiveProjectId();
+    if (isValidUuidV4(pid)) {
+      try {
+        window.localStorage.setItem('projectId', pid);
+      } catch (_) {
+        // ignore storage errors
+      }
+    }
+  }, []);
+
   const [editingChapter, setEditingChapter] = useState(null);
   const fileInputRef = useRef(null);
   const musicInputRef = useRef(null);
@@ -72,6 +128,11 @@ function Editor() {
     const formData = new FormData();
     formData.append('media', file);
     const projectId = getActiveProjectId();
+    if (!isValidUuidV4(projectId)) {
+      console.error('Invalid or missing projectId. Aborting upload.');
+      alert('Projet introuvable. Merci d\'ouvrir votre projet depuis une URL /project/[id] ou de réessayer.');
+      return;
+    }
     formData.append('projectId', projectId);
     formData.append('chapterName', chapter.name);
     formData.append('userEmail', 'user@example.com');
