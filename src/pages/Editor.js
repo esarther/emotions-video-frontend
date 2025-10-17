@@ -3,6 +3,16 @@ import { ChevronRight, Upload, X, Save, Play, Trash2, Edit2, GripVertical, Music
 
 const BACKEND_URL = 'https://sensational-naiad-e44c75.netlify.app';
 
+// Retrieve the active project ID from the URL (e.g., /project/[id] or ?projectId=...)
+function getActiveProjectId() {
+  const path = window.location.pathname || '';
+  const match = path.match(/\/(project)\/([^/]+)/);
+  if (match && match[2]) return match[2];
+  const params = new URLSearchParams(window.location.search);
+  const pid = params.get('projectId');
+  return pid || '';
+}
+
 function Editor() {
   const [activeStep, setActiveStep] = useState(1);
   const [draggedMedia, setDraggedMedia] = useState(null);
@@ -61,7 +71,8 @@ function Editor() {
     const chapter = projectData.chapters.find(ch => ch.id === chapterId);
     const formData = new FormData();
     formData.append('media', file);
-    formData.append('projectId', 'local-project');
+    const projectId = getActiveProjectId();
+    formData.append('projectId', projectId);
     formData.append('chapterName', chapter.name);
     formData.append('userEmail', 'user@example.com');
 
