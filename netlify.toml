@@ -1,0 +1,14 @@
+[build]
+  command = ""
+  publish = "build"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["busboy", "cloudinary", "@supabase/supabase-js"]
+
+# Optional: redirect API path to functions in local dev
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200

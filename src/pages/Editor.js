@@ -138,7 +138,7 @@ function Editor() {
     formData.append('userEmail', 'user@example.com');
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+      const response = await fetch(`${BACKEND_URL}/.netlify/functions/upload`, {
         method: 'POST',
         body: formData
       });
