@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Video, FolderOpen, User, LogOut } from 'lucide-react';
+import { Video, FolderOpen, User } from 'lucide-react';
 
 function Navbar() {
   const location = useLocation();

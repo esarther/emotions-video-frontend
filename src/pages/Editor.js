@@ -17,7 +17,6 @@ function Editor() {
   const [musicMode, setMusicMode] = useState('global');
   const [globalMusic, setGlobalMusic] = useState(null);
   const [dragActive, setDragActive] = useState(false);
-  const [uploadingFiles, setUploadingFiles] = useState(new Set());
   const fileInputRef = useRef(null);
   const musicInputRef = useRef(null);
 
@@ -71,7 +70,6 @@ function Editor() {
     try {
       // Essayer d'abord l'endpoint /api/upload (Next.js API Route)
       let response;
-      let lastError = null;
       
       try {
         console.log('🔄 Tentative upload vers:', uploadUrl);
@@ -97,7 +95,6 @@ function Editor() {
         console.log('⚠️ Erreur avec endpoint principal:', fetchError.message);
         console.log('⚠️ Type d\'erreur:', fetchError.name);
         console.log('⚠️ Tentative avec endpoint alternatif:', fallbackUrl);
-        lastError = fetchError;
         
         try {
           // Recréer FormData car il ne peut être utilisé qu'une fois
@@ -273,8 +270,6 @@ function Editor() {
 
       // Uploader chaque fichier
       for (const media of tempMedias) {
-        setUploadingFiles(prev => new Set(prev).add(media.id));
-        
         try {
           const uploadedFile = await uploadToBackend(media.file, chapter.name);
           
@@ -300,12 +295,6 @@ function Editor() {
               return ch;
             })
           );
-
-          setUploadingFiles(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(media.id);
-            return newSet;
-          });
 
           console.log('✅ Fichier uploadé:', uploadedFile.originalName);
         } catch (error) {
@@ -335,11 +324,6 @@ function Editor() {
             })
           );
 
-          setUploadingFiles(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(media.id);
-            return newSet;
-          });
         }
       }
     }
@@ -432,7 +416,6 @@ function Editor() {
     ));
   };
 
-  const totalMedias = chapters.reduce((sum, ch) => sum + ch.medias.length, 0);
   const totalPhotos = chapters.reduce((sum, ch) => 
     sum + ch.medias.filter(m => m.type === 'photo').length, 0
   );
